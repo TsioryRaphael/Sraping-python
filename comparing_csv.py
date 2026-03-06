@@ -95,8 +95,34 @@ print(f"Modifiées (dates) : {len(modifiees['NEQ'].unique())}")
 # 5. Sauvegarde + rapport
 # -------------------------------------------------
 ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-nouvelles.to_csv(f'nouvelles_entreprises_{ts}.csv', index=False, encoding='utf-8')
+
+# Pour les nouvelles entreprises, on veut toutes les colonnes disponibles dans le fichier
+# original (table Entreprise). On relit donc le CSV complet du fichier "nouveau" et on filtre.
+full_new = pd.read_csv(nouveau_f, dtype=str, na_filter=False)
+# assurer que la colonne NEQ existe même si le CSV n'en contient pas (improbable)
+if 'NEQ' not in full_new.columns:
+    raise SystemExit(f"Le fichier {nouveau_f.name} ne contient pas de colonne NEQ.")
+
+nouvelles_completes = full_new[full_new['NEQ'].isin(nouvelles['NEQ'])].copy()
+
+nouvelles_completes.to_csv(f'nouvelles_entreprises_{ts}.csv', index=False, encoding='utf-8')
 modifiees_detail.to_csv(f'modifiees_dates_{ts}.csv', index=False, encoding='utf-8')
+
+# Générer fichier JS avec seulement les NOUVELLES entreprises
+all_neq = sorted(list(set(nouvelles['NEQ'])))
+
+# Format: 10 numéros par ligne, entre guillemets
+lines = []
+for i in range(0, len(all_neq), 10):
+    batch = all_neq[i:i+10]
+    line = ', '.join([f'"{neq}"' for neq in batch])
+    if i + 10 < len(all_neq):
+        line += ","
+    lines.append(line)
+
+js_content = "let numbers = [\n" + "\n".join(lines) + "\n];"
+with open(f'neq_list_{ts}.js', 'w', encoding='utf-8') as f:
+    f.write(js_content)
 
 rapport = f"""\
 RAPPORT DE COMPARAISON – {datetime.now():%d/%m/%Y %H:%M}
@@ -108,10 +134,12 @@ Fichiers comparés
 Résultats
   Nouvelles entreprises          : {len(nouvelles)}
   Entreprises avec dates changées: {len(modifiees['NEQ'].unique())}
+  Total NEQ à traiter            : {len(all_neq)}
 
 Fichiers générés
   nouvelles_entreprises_{ts}.csv
   modifiees_dates_{ts}.csv
+  neq_list_{ts}.js
 """
 
 with open(f'rapport_comparaison_{ts}.txt', 'w', encoding='utf-8') as f:
