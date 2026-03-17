@@ -2,6 +2,7 @@
 import csv
 import glob
 import os
+import argparse
 
 def process_file(filename, csv_writer, lines=None):
     if lines is None:
@@ -131,7 +132,24 @@ def write_person_row(filename, person, csv_writer, section):
     csv_writer.writerow([filename_without_ext, nom, prenom, adresse, fonction])
 
 # Main part: process all .txt files in the specified directory
-directory = ""
+parser = argparse.ArgumentParser(description="Extract shareholders/administrators from text files into a CSV")
+parser.add_argument(
+    "directory",
+    nargs="?",
+    default="scraping",
+    help="Directory containing .txt files to process (default: scraping/scraping)",
+)
+parser.add_argument(
+    "-o",
+    "--output",
+    default="administrateurs.csv",
+    help="Output CSV file path (default: administrateurs.csv)",
+)
+args = parser.parse_args()
+
+directory = args.directory
+output_file = args.output
+
 print(f"Current working directory: {os.getcwd()}")
 print(f"Looking for files in: {os.path.join(directory, '*.txt')}")
 if not os.path.exists(directory):
@@ -142,9 +160,9 @@ if not files:
     print(f"No .txt files found in {directory}")
     exit(1)
 print(f"Found files: {files}")
-with open('administrateurs.csv', 'w', encoding='utf-8-sig', newline='') as csvfile:
+with open(output_file, 'w', encoding='utf-8-sig', newline='') as csvfile:
     writer = csv.writer(csvfile)
     writer.writerow(["NEQ", "Nom", "Prénom", "Adresse", "Fonction"])
     for file in files:
         process_file(file, writer)
-print("🎉 Processing complete. Data written to administrateurs.csv")
+print(f"🎉 Processing complete. Data written to {output_file}")

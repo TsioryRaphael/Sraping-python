@@ -76,20 +76,51 @@ for col in COLONNES_DATES:
 modifiees_neq = diff_mask.any(axis=1)
 modifiees = new[new['NEQ'].isin(modifiees_neq[modifiees_neq].index)].copy()
 
+# Détail des changements (dates + autres champs)
+# ---
+# Pour analyser si un changement de date peut s'accompagner d'autres modifications,
+# on compare toutes les colonnes communes à l'ancien et au nouveau fichier.
+# Cela permet de détecter les changements sur les champs additionnels (statut, nom, etc.)
+# tout en conservant la détection sur les dates.
+
+# On relit les deux fichiers en entier (tous les champs) pour comparer au niveau des colonnes.
+full_old = pd.read_csv(ancien_f, dtype=str, na_filter=False)
+full_new = pd.read_csv(nouveau_f, dtype=str, na_filter=False)
+
+# Assurer que la colonne NEQ existe et qu'il n'y a pas de doublons NEQ.
+for df, name in [(full_old, ancien_f.name), (full_new, nouveau_f.name)]:
+    if 'NEQ' not in df.columns:
+        raise SystemExit(f"Le fichier {name} ne contient pas de colonne NEQ.")
+
+full_old = full_old.drop_duplicates(subset='NEQ', keep='first')
+full_new = full_new.drop_duplicates(subset='NEQ', keep='first')
+
+# Index par NEQ pour accès rapide
+full_old_idx = full_old.set_index('NEQ')
+full_new_idx = full_new.set_index('NEQ')
+
+# Colonnes communes (hors NEQ) à comparer
+common_cols = [c for c in full_old.columns if c in full_new.columns and c != 'NEQ']
+
 # Détail des changements
+# On se limite aux NEQ identifiés comme ayant un changement de date.
 details = []
 for neq in modifiees_neq[modifiees_neq].index:
-    for col in COLONNES_DATES:
-        if diff_mask.at[neq, col]:
-            details.append({
-                'NEQ': neq,
-                'COLONNE_MODIFIEE': col,
-                'ANCIENNE_VALEUR': old_idx.at[neq, col],
-                'NOUVELLE_VALEUR': new_idx.at[neq, col]
-            })
-modifiees_detail = pd.DataFrame(details)
+    row = {'NEQ': neq}
+    for col in common_cols:
+        old_val = full_old_idx.at[neq, col]
+        new_val = full_new_idx.at[neq, col]
+        if old_val != new_val:
+            row[col] = new_val
+    if len(row) > 1:
+        details.append(row)
 
-print(f"Modifiées (dates) : {len(modifiees['NEQ'].unique())}")
+modifiees_detail = pd.DataFrame(details)
+if not modifiees_detail.empty:
+    cols = ['NEQ'] + [c for c in modifiees_detail.columns if c != 'NEQ']
+    modifiees_detail = modifiees_detail[cols]
+
+print(f"Modifiées (dates + autres champs) : {len(modifiees['NEQ'].unique())}")
 
 # -------------------------------------------------
 # 5. Sauvegarde + rapport
@@ -97,8 +128,7 @@ print(f"Modifiées (dates) : {len(modifiees['NEQ'].unique())}")
 ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 # Pour les nouvelles entreprises, on veut toutes les colonnes disponibles dans le fichier
-# original (table Entreprise). On relit donc le CSV complet du fichier "nouveau" et on filtre.
-full_new = pd.read_csv(nouveau_f, dtype=str, na_filter=False)
+# original (table Entreprise). On utilise le CSV déjà chargé (`full_new`).
 # assurer que la colonne NEQ existe même si le CSV n'en contient pas (improbable)
 if 'NEQ' not in full_new.columns:
     raise SystemExit(f"Le fichier {nouveau_f.name} ne contient pas de colonne NEQ.")
@@ -106,10 +136,10 @@ if 'NEQ' not in full_new.columns:
 nouvelles_completes = full_new[full_new['NEQ'].isin(nouvelles['NEQ'])].copy()
 
 nouvelles_completes.to_csv(f'nouvelles_entreprises_{ts}.csv', index=False, encoding='utf-8')
-modifiees_detail.to_csv(f'modifiees_dates_{ts}.csv', index=False, encoding='utf-8')
+modifiees_detail.to_csv(f'modifiees_{ts}.csv', index=False, encoding='utf-8')
 
-# Générer fichier JS avec seulement les NOUVELLES entreprises
-all_neq = sorted(list(set(nouvelles['NEQ'])))
+# Générer fichier JS avec seulement les entreprises modifiées
+all_neq = sorted(list(set(modifiees['NEQ'])))
 
 # Format: 10 numéros par ligne, entre guillemets
 lines = []
@@ -133,12 +163,12 @@ Fichiers comparés
 
 Résultats
   Nouvelles entreprises          : {len(nouvelles)}
-  Entreprises avec dates changées: {len(modifiees['NEQ'].unique())}
+  Entreprises avec changements    : {len(modifiees['NEQ'].unique())}
   Total NEQ à traiter            : {len(all_neq)}
 
 Fichiers générés
   nouvelles_entreprises_{ts}.csv
-  modifiees_dates_{ts}.csv
+  modifiees_{ts}.csv
   neq_list_{ts}.js
 """
 
